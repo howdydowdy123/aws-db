@@ -3815,6 +3815,18 @@ function onCountryFilterChange(country) {
 }
 
 function renderDashboard(rows, fname) {
+  // Fold "Pickup Cost" into "Total Cost" at the single data entry point so every
+  // downstream calculation (KPIs, group-by tabs, charts, tables) includes it
+  // automatically. Runs for both RDS fetches and Excel uploads. Idempotent via a
+  // guard flag so re-renders of the same rows don't double-count.
+  (rows || []).forEach(r => {
+    if (r && !r.__pickupFolded) {
+      const pickup = Number(r['Pickup Cost']) || 0;
+      r['Total Cost'] = (Number(r['Total Cost']) || 0) + pickup;
+      r.__pickupFolded = true;
+    }
+  });
+
   rawRows = rows;
   selectedMidMile = 'All';
   selectedCountry = 'All';
@@ -3983,7 +3995,7 @@ const REQUIRED_COLUMNS = [
   'Order Number', 'User Name', 'Total Cost', 'Total Price with out GST',
   'LM', 'Mid Mile', 'Provider', 'Zone', 'Actual Weight',
   'Package Round weight', 'Handover Date', 'Created Date', 'Drop Country',
-  'Vertical', 'LM Cost', 'LM Cost INR'
+  'Vertical', 'LM Cost', 'LM Cost INR', 'Pickup Cost'
 ];
 
 function apiHeaders(key) {

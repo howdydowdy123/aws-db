@@ -27,6 +27,7 @@ const DEFAULT_COLUMNS = [
   'Vertical',
   'LM Cost',
   'LM Cost INR',
+  'Pickup Cost',
 ];
 
 function safeIdent(name) {
