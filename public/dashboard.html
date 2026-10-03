@@ -2072,6 +2072,8 @@ const TABS = [
   { id: 'midlm',   label: '🔀 Mid + LM' },
   { id: 'customer', label: '👤 Customer' },
   { id: 'zone',     label: '📍 Zone' },
+  { id: 'citypickup', label: '📍 City Pickup Cost' },
+  { id: 'custpickup', label: '👤 Customer Pickup Cost' },
   { id: 'allship',  label: '📋 All Shipments' },
   { id: 'tonnage',  label: '⚖️ Avg Tonnage' },
   { id: 'wslab',    label: '📐 Weight Slabs' },
@@ -2133,6 +2135,21 @@ function groupByTwo(rows, k1, k2) {
     profit: v.price - v.cost,
     pct: v.price ? (v.price - v.cost) / v.price * 100 : 0
   })).sort((a, b) => b.count - a.count);
+}
+
+function groupByPickup(rows, key) {
+  const m = {};
+  rows.forEach(r => {
+    const k = String(r[key] ?? '').trim();
+    if (!k) return;
+    if (!m[k]) m[k] = { count: 0, weight: 0, pickup: 0 };
+    m[k].count++;
+    m[k].weight += Number(r['Actual Weight']) || 0;
+    m[k].pickup += Number(r['Pickup Cost']) || 0;
+  });
+  return Object.entries(m).map(([name, v]) => ({
+    name, count: v.count, weight: v.weight, pickup: v.pickup
+  })).sort((a, b) => b.pickup - a.pickup);
 }
 
 function getUniqueMidMiles(rows) {
@@ -2723,6 +2740,8 @@ function processRows(rows) {
     customer: groupBy(rows, 'User Name'),
     zone:     groupBy(rows, 'Zone'),
     midlm:    groupByTwo(rows, 'Mid Mile', 'LM'),
+    citypickup: groupByPickup(rows, 'Pickup City'),
+    custpickup: groupByPickup(rows, 'User Name'),
   };
 }
 
@@ -2916,6 +2935,20 @@ const COL_SETS = {
     { label: 'Revenue', render: i => fmtINR(i.price), right: true },
     { label: 'Profit / Loss', render: i => fmtINR(i.profit), right: true, colorize: true },
     { label: 'Margin %', render: i => fmtPct(i.pct), right: true, colorize: true },
+  ],
+  citypickup: (items) => [
+    { label: '#', render: (_, i) => `<span class="rank">${i+1}</span>` },
+    { label: 'Pickup City', render: i => i.name },
+    { label: 'Shipments', render: i => fmtN(i.count), right: true },
+    { label: 'Total Weight', render: i => fmtWeight(i.weight), right: true },
+    { label: 'Total Pickup Cost', render: i => fmtINR(i.pickup), right: true },
+  ],
+  custpickup: (items) => [
+    { label: '#', render: (_, i) => `<span class="rank">${i+1}</span>` },
+    { label: 'Customer', render: i => i.name },
+    { label: 'Shipments', render: i => fmtN(i.count), right: true },
+    { label: 'Total Weight', render: i => fmtWeight(i.weight), right: true },
+    { label: 'Total Pickup Cost', render: i => fmtINR(i.pickup), right: true },
   ],
 };
 
@@ -3995,7 +4028,7 @@ const REQUIRED_COLUMNS = [
   'Order Number', 'User Name', 'Total Cost', 'Total Price with out GST',
   'LM', 'Mid Mile', 'Provider', 'Zone', 'Actual Weight',
   'Package Round weight', 'Handover Date', 'Created Date', 'Drop Country',
-  'Vertical', 'LM Cost', 'LM Cost INR', 'Pickup Cost'
+  'Vertical', 'LM Cost', 'LM Cost INR', 'Pickup Cost', 'Pickup City'
 ];
 
 function apiHeaders(key) {
