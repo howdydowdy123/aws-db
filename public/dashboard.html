@@ -603,9 +603,40 @@
     margin-bottom: 24px;
   }
   .file-bar-left { display: flex; align-items: center; gap: 12px; }
+  .file-bar-right { display: flex; align-items: center; gap: 12px; }
   .file-icon { font-size: 20px; }
   .file-name { font-weight: 500; font-size: 14px; }
   .file-meta { font-size: 12px; color: var(--muted); }
+
+  /* pickup cost toggle */
+  .pickup-toggle {
+    display: flex; align-items: center; gap: 10px;
+    cursor: pointer; user-select: none;
+    background: var(--surface2);
+    border: 1px solid var(--border2);
+    border-radius: var(--radius-sm);
+    padding: 7px 12px;
+  }
+  .pickup-toggle:hover { border-color: var(--border); }
+  .pickup-toggle-text { font-size: 12px; color: var(--muted); font-weight: 500; }
+  .pickup-switch { position: relative; display: inline-flex; width: 38px; height: 20px; }
+  .pickup-switch input { position: absolute; opacity: 0; width: 0; height: 0; }
+  .pickup-switch-track {
+    position: absolute; inset: 0;
+    background: var(--border2);
+    border-radius: 999px;
+    transition: background 0.2s;
+  }
+  .pickup-switch-track::before {
+    content: ''; position: absolute;
+    width: 14px; height: 14px; left: 3px; top: 3px;
+    background: #fff; border-radius: 50%;
+    transition: transform 0.2s;
+  }
+  .pickup-switch input:checked + .pickup-switch-track { background: var(--accent); }
+  .pickup-switch input:checked + .pickup-switch-track::before { transform: translateX(18px); }
+  .pickup-switch input:focus-visible + .pickup-switch-track { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .pickup-toggle-state { font-size: 12px; color: var(--text); font-weight: 600; min-width: 56px; }
 
   /* tabs */
   .tab-bar-wrap {
@@ -2036,6 +2067,16 @@
           <div class="file-meta" id="fmeta"></div>
         </div>
       </div>
+      <div class="file-bar-right">
+        <label class="pickup-toggle" title="Include Pickup Cost in Total Cost">
+          <span class="pickup-toggle-text">Include Pickup Cost</span>
+          <span class="pickup-switch">
+            <input type="checkbox" id="pickup-toggle" checked onchange="onPickupToggleChange(this.checked)">
+            <span class="pickup-switch-track"></span>
+          </span>
+          <span class="pickup-toggle-state" id="pickup-toggle-state">Included</span>
+        </label>
+      </div>
     </div>
 
     <div class="summary-row" id="kpi-row"></div>
@@ -2056,6 +2097,9 @@ let charts = [];
 let currentTab = 'lm';
 let allData = null;
 let rawRows = null;
+// Toggle: whether "Pickup Cost" is folded into "Total Cost" for all downstream
+// calculations. Default ON so existing behavior (pickup included) is preserved.
+let includePickup = true;
 let selectedMidMile = 'All';
 let selectedCountry = 'All';
 let allHandoverDates = [];
@@ -3847,18 +3891,46 @@ function onCountryFilterChange(country) {
   applyFilters();
 }
 
-function renderDashboard(rows, fname) {
-  // Fold "Pickup Cost" into "Total Cost" at the single data entry point so every
-  // downstream calculation (KPIs, group-by tabs, charts, tables) includes it
-  // automatically. Runs for both RDS fetches and Excel uploads. Idempotent via a
-  // guard flag so re-renders of the same rows don't double-count.
+// Capture an immutable baseline (raw DB "Total Cost" + "Pickup Cost") once per row,
+// then set each row's working "Total Cost" according to the current pickup toggle.
+// Idempotent: safe to call on every render / toggle without double-counting, because
+// "Total Cost" is always recomputed from the captured baseline rather than mutated in
+// place. The raw "Pickup Cost" field is left untouched so the City/Customer Pickup Cost
+// tabs (which sum it directly) keep working in both modes.
+function applyPickupMode(rows) {
   (rows || []).forEach(r => {
-    if (r && !r.__pickupFolded) {
-      const pickup = Number(r['Pickup Cost']) || 0;
-      r['Total Cost'] = (Number(r['Total Cost']) || 0) + pickup;
-      r.__pickupFolded = true;
+    if (!r) return;
+    if (r.__rawTotalCost === undefined) {
+      r.__rawTotalCost = Number(r['Total Cost']) || 0;
+      r.__pickupCost = Number(r['Pickup Cost']) || 0;
     }
+    r['Total Cost'] = r.__rawTotalCost + (includePickup ? r.__pickupCost : 0);
   });
+}
+
+function updatePickupToggleLabel() {
+  const stateEl = document.getElementById('pickup-toggle-state');
+  if (stateEl) stateEl.textContent = includePickup ? 'Included' : 'Excluded';
+  const cb = document.getElementById('pickup-toggle');
+  if (cb) cb.checked = includePickup;
+}
+
+// Re-render the whole dashboard against the already-loaded dataset when the pickup
+// toggle flips. No re-fetch / re-upload: recompute Total Cost from captured baselines,
+// then re-run the existing filter + render pipeline (preserves active tab and filters).
+function onPickupToggleChange(checked) {
+  includePickup = !!checked;
+  updatePickupToggleLabel();
+  if (!rawRows) return;
+  applyPickupMode(rawRows);
+  applyFilters();
+}
+
+function renderDashboard(rows, fname) {
+  // Apply the current pickup-cost mode at the single data entry point so every
+  // downstream calculation (KPIs, group-by tabs, charts, tables) reflects it.
+  // Runs for both RDS fetches and Excel uploads.
+  applyPickupMode(rows);
 
   rawRows = rows;
   selectedMidMile = 'All';
@@ -3895,6 +3967,7 @@ function renderDashboard(rows, fname) {
 
   document.getElementById('upload-view').style.display = 'none';
   document.getElementById('dash-view').style.display = 'block';
+  updatePickupToggleLabel();
   document.getElementById('reset-btn').style.display = 'flex';
   document.getElementById('fname').textContent = fname;
   document.getElementById('fmeta').textContent = rows.length.toLocaleString('en-IN') + ' shipments loaded';
